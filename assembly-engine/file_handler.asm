@@ -15,8 +15,8 @@
 ; Link      :  link /subsystem:console /entry:main file_handler.obj Irvine32.lib kernel32.lib user32.lib
 ; ============================================================
 
-INCLUDE Irvine32.inc
-INCLUDE crypto_logic.inc
+INCLUDE c:\Users\840 G6\.vscode\extensions\istareatscreens.masm-runner-1.0.0\native\irvine\Irvine32.inc
+
 
 ; ---- constants ------------------------------------------------
 BUFFER_SIZE     EQU 5000
@@ -75,7 +75,7 @@ HEX_CHARS_SIZE  EQU (BUFFER_SIZE * 3) + 64   ; "XX " per byte + header
 
 ; ---- .code ----------------------------------------------------
 .code
-
+INCLUDE crypto_logic.inc
 ; ============================================================
 ; Utility: WriteStringToFile
 ; Writes a nul-terminated string to an already-open file.
