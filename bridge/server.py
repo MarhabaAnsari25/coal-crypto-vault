@@ -54,21 +54,69 @@ class BridgeHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         payload = json.loads(self.rfile.read(length).decode("utf-8"))
         text = payload.get("text", "")
-        key = payload.get("key", "")
+        key  = payload.get("key", "")
         mode = payload.get("mode", "encrypt")
 
-        with open(os.path.join(ASM_DIR, "input.txt"), "w", encoding="utf-8") as f:
+        # file_handler.asm reads key.txt as:
+        #   line 1 — single mode char  'E' (encrypt) or 'D' (decrypt)
+        #   line 2 — key string
+        # It reads input.txt for the plaintext.
+        # It takes NO command-line arguments.
+        mode_char = "E" if str(mode).upper() in ("E", "ENCRYPT") else "D"
+
+        with open(os.path.join(ASM_DIR, "key.txt"), "w", encoding="utf-8", newline="\n") as f:
+            f.write(mode_char + "\n")
+            f.write(key + "\n")
+
+        with open(os.path.join(ASM_DIR, "input.txt"), "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
-        with open(os.path.join(ASM_DIR, "key.txt"), "w", encoding="utf-8") as f:
-            f.write(key)
-        with open(os.path.join(ASM_DIR, "mode.txt"), "w", encoding="utf-8") as f:
-            f.write("E" if mode == "encrypt" else "D")
 
-        subprocess.run([EXE_PATH], cwd=ASM_DIR, check=False)
+        proc = subprocess.run([EXE_PATH], cwd=ASM_DIR, capture_output=True)
 
-        out_path = os.path.join(ASM_DIR, "output.txt")
-        result = open(out_path, "r", encoding="utf-8", errors="replace").read() if os.path.exists(out_path) else ""
-        resp = json.dumps({"result": result, "engine": "assembly"}).encode("utf-8")
+        # output.txt contains raw processed bytes — read as binary, transport as latin-1
+        out_path  = os.path.join(ASM_DIR, "output.txt")
+        meta_path = os.path.join(ASM_DIR, "meta.txt")
+
+        result_bytes = open(out_path, "rb").read() if os.path.exists(out_path) else b""
+        result_str   = result_bytes.decode("latin-1")
+
+        # meta.txt format written by file_handler.asm:
+        #   === Processed Bytes (Hex) ===\r\n
+        #   XX XX XX ...\r\n          (16 bytes per line)
+        #   \r\n
+        #   === Checksum (32-bit) ===\r\n
+        #   XXXXXXXX\r\n
+        hex_dump  = ""
+        checksum  = ""
+        if os.path.exists(meta_path):
+            meta_text    = open(meta_path, "r", encoding="utf-8", errors="replace").read()
+            lines        = meta_text.splitlines()
+            in_hex       = False
+            after_chk    = False
+            hex_lines    = []
+            for line in lines:
+                if "Processed Bytes" in line and "===" in line:
+                    in_hex = True
+                    continue
+                if "Checksum" in line and "===" in line:
+                    in_hex    = False
+                    after_chk = True
+                    continue
+                if in_hex and line.strip():
+                    hex_lines.append(line.strip())
+                if after_chk and line.strip():
+                    checksum  = line.strip()
+                    after_chk = False
+            hex_dump = "\n".join(hex_lines)
+
+        resp = json.dumps({
+            "result":   result_str,
+            "hexDump":  hex_dump,
+            "checksum": checksum,
+            "engine":   "assembly",
+            "exitCode": proc.returncode,
+        }).encode("utf-8")
+
         self.send_response(200)
         self.send_cors()
         self.send_header("Content-Type", "application/json")
